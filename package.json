@@ -1,0 +1,8 @@
+{
+  "name": "colpali-mcp-demo",
+  "version": "1.0.0",
+  "description": "A demo project to connect Claude Desktop with Elasticsearch via MCP.",
+  "dependencies": {
+    "@elastic/mcp-server-elasticsearch": "latest"
+  }
+}
