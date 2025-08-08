@@ -30,7 +30,7 @@ Instead of the original demo data, this project uses the **RVL-CDIP (Ryerson Vis
 While powerful, ColPali has trade-offs, such as high memory usage for multi-vector indexing and increased latency due to its 'late interaction' mechanism. To address this, we apply the following optimization techniques:
 
 * **Average Vector**: A single `dense_vector` is generated for each document to be used in a first-pass `knn` search, significantly reducing search costs.
-* **BBQ (Better Binary Quantization)**: The multi-vectors in the `rank_vectors` field are compressed using the `element_type: 'bit'` option, saving approximately 95% on storage.
+* **BBQ (Better Binary Quantization)**: The multi-vectors in the rank_vectors field are compressed using the element_type: 'bit' option, reducing storage by around 95%, and also reducing memory usage and improving search speed.
 * **Rescore**: After the initial `knn` search, the top candidates are re-ranked using the original, BBQ-compressed multi-vectors. This two-stage architecture achieves both speed and accuracy.
 
 ### 5. Multimodal RAG: Direct Integration with Amazon Bedrock (Part 3)
