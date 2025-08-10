@@ -101,16 +101,16 @@ st.subheader("Example Queries")
 col1, col2 = st.columns(2)
 with col1:
     st.button(
-        "Find the return request from the customer", 
+        "Do you have a benefits policy change notice from HR", 
         on_click=set_query_text, 
-        args=("Find the return request from the customer",),
+        args=("Do you have a benefits policy change notice from HR",),
         use_container_width=True
     )
 with col2:
     st.button(
-        "고객사에서 보낸 반품요청서를 찾아줘", 
+        "인사팀에서 보내온 복리후생 정책 변경 안내문이 있나?", 
         on_click=set_query_text, 
-        args=("고객사에서 보낸 반품요청서를 찾아줘",),
+        args=("인사팀에서 보내온 복리후생 정책 변경 안내문이 있나?",),
         use_container_width=True
     )
 
