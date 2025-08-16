@@ -75,15 +75,15 @@ st.markdown(
 try:
     dotenv_path = 'elastic.env'
     load_dotenv(dotenv_path=dotenv_path)
-    ELASTIC_HOST = os.getenv("ELASTIC_HOST")
-    ELASTIC_API_KEY = os.getenv("ELASTIC_API_KEY")
+    ES_URL = os.getenv("ES_URL")
+    ES_API_KEY = os.getenv("ES_API_KEY")
 
-    if not ELASTIC_HOST or not ELASTIC_API_KEY:
-        st.error(f"🚨 Elasticsearch credentials not found. Please create an '{dotenv_path}' file.")
+    if not ES_URL or not ES_API_KEY:
+        st.error(f"🚨 Elasticsearch credentials not found. Please create an '{dotenv_path}' file with ES_URL and ES_API_KEY.")
         st.stop()
         
     model, processor = load_colqwen_model()
-    es = connect_to_elasticsearch(ELASTIC_HOST, ELASTIC_API_KEY)
+    es = connect_to_elasticsearch(ES_URL, ES_API_KEY)
 
 except Exception as e:
     st.error(f"Failed to initialize. Error: {e}")
@@ -178,4 +178,3 @@ if submitted:
             
             except Exception as e:
                 st.error(f"An error occurred during search: {e}")
-

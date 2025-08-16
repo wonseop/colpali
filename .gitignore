@@ -1,6 +1,10 @@
 
 # Environment variables
+# Ignore all .env files
 *.env
+# But not .env.example files
+!*.env.example
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
+node_modules

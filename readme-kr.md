@@ -80,7 +80,7 @@ Elastic의 MCP 통합을 통해 다음을 수행할 수 있습니다:
 
 - **Jupyter Notebook 실행**:
   - **Part 1 (`01_colqwen.ipynb`)**: ColPali 기반의 기본 `rank_vectors` 검색을 구현하며, `colqwen-rvlcdip-demo-part1` 인덱스를 생성합니다.
-  - **Part 2 (`02_avg_colqwen.ipynb`)**: 평균 벡터와 BBQ, 리스코어링 최적화를 구현하며, `colqwen-rvlcdip-demo-part2-original` 인덱스를 생성합니다.
+  - **Part 2 (`02_avg_colqwen.ipynb`)**: 평균 벡터와 BBQ, 리스코어링 최적화를 구현하며, `colqwen-rvlcdip-demo-part2` 인덱스를 생성합니다.
   - **Part 3 (`03_rag_with_inference_api.ipynb`)**: Elastic Inference API를 사용한 RAG 데모를 구현하여 Amazon Bedrock과 연동된 LLM 응답 생성을 보여줍니다.
   - **Part 4 (`04_rag_with_mcp_claude.ipynb`)**: Elastic MCP 서버와 Claude Desktop을 활용한 RAG 데모를 구현하여 자연어 기반의 에이전트 상호작용을 보여줍니다.
   - 각 노트북을 순차적으로 실행하면, RVL-CDIP 샘플 데이터를 기반으로 Elasticsearch에 인덱스가 생성됩니다.
@@ -115,8 +115,8 @@ pip install -r requirements.txt
 - **단계 3: Elasticsearch 자격 증명 구성**:
 프로젝트 루트 디렉토리(또는 스크립트와 동일한 디렉토리)에 `elastic.env`라는 파일을 생성하고 Elasticsearch 연결 세부 정보를 추가하십시오:
 ```
-ELASTIC_HOST=<your-elasticsearch-host-or-cloud-id>
-ELASTIC_API_KEY=<your-elasticsearch-api-key>
+ES_URL=<your-elasticsearch-url-or-cloud-id>
+ES_API_KEY=<your-elasticsearch-api-key>
 ```
 `<your-elasticsearch-host-or-cloud-id>` 및 `<your-elasticsearch-api-key>`를 실제 Elasticsearch 자격 증명으로 바꾸십시오. 보안상의 이유로 이 파일을 버전 관리 시스템에 커밋하지 않도록 주의하십시오.
 
@@ -157,4 +157,3 @@ streamlit run colpali_rag_demo.py
 - 추가 지원을 받으려면 개별 라이브러리의 문서를 참조하거나 프로젝트 저장소에 이슈를 제기하십시오.
 
 이 프로젝트는 기업 내부 문서 검색의 효율성과 정확도를 극대화하기 위해 최신 기술과 최적화 기법을 통합한 결과물입니다. 지속적인 피드백과 개선을 통해 더 나은 검색 시스템을 구축할 수 있도록 노력하겠습니다.
-

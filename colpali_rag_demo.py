@@ -5,6 +5,7 @@ os.environ['STREAMLIT_SERVER_FILE_WATCHER_TYPE'] = 'none'
 import streamlit as st
 import torch
 import numpy as np
+import time
 from elasticsearch import Elasticsearch
 from dotenv import load_dotenv
 from PIL import Image
@@ -23,8 +24,8 @@ st.set_page_config(
 # --- Constants for Elasticsearch, Models, and Bedrock ---
 INDEX_NAME_PART1 = "colqwen-rvlcdip-demo-part1"
 VECTOR_FIELD_NAME_PART1 = "colqwen_vectors"
-INDEX_NAME_PART2 = "colqwen-rvlcdip-demo-part2-original"
-VECTOR_FIELD_NAME_PART2_MULTI = "colqwen_vectors_binary" 
+INDEX_NAME_PART2 = "colqwen-rvlcdip-demo-part2" # Corrected for consistency
+VECTOR_FIELD_NAME_PART2_MULTI = "colqwen_vectors" # Corrected for consistency
 AVG_VECTOR_FIELD_NAME_PART2 = "colqwen_avg_vector"
 MODEL_NAME = "tsystems/colqwen2.5-3b-multilingual-v1.0"
 # FIX: Switched to Claude 3 Haiku, which is more likely to be available for On-Demand throughput.
@@ -58,9 +59,9 @@ def load_colqwen_model():
 def connect_to_elasticsearch(elastic_host, api_key):
     """Connects to Elasticsearch and caches the client."""
     if ":" in elastic_host and not elastic_host.startswith("http"):
-        es = Elasticsearch(cloud_id=elastic_host, api_key=api_key)
+        es = Elasticsearch(cloud_id=elastic_host, api_key=api_key, request_timeout=30)
     else:
-        es = Elasticsearch(hosts=[elastic_host], api_key=api_key)
+        es = Elasticsearch(hosts=[elastic_host], api_key=api_key, request_timeout=30)
     return es
 
 @st.cache_resource
@@ -92,6 +93,10 @@ def to_avg_vector(vectors):
 
 def display_results(hits):
     """Displays visual search results in columns."""
+    if not hits:
+        st.warning("No matching documents found.")
+        return
+        
     cols = st.columns(5)
     for i, hit in enumerate(hits):
         with cols[i]:
@@ -106,6 +111,62 @@ def display_results(hits):
                 st.warning(f"Image not found at: {path}")
             st.metric(label="Score", value=f"{score:.4f}")
             st.caption(f"ID: {hit['_id'][:20]}...")
+
+def build_es_query(search_mode, query_vectors_float, query_avg_vector):
+    """Builds the Elasticsearch query body based on the selected search mode."""
+    index_name = ""
+    es_query_body = {
+        "size": 5,
+        "_source": ["image_path", "category"]
+    }
+
+    if search_mode.startswith("A."):
+        index_name = INDEX_NAME_PART1
+        es_query_body["query"] = {
+            "script_score": {
+                "query": {"match_all": {}},
+                "script": {
+                    "source": f"maxSimDotProduct(params.query_vector, '{VECTOR_FIELD_NAME_PART1}')",
+                    "params": {"query_vector": query_vectors_float}
+                }
+            }
+        }
+    elif search_mode.startswith("B."):
+        index_name = INDEX_NAME_PART2
+        es_query_body["knn"] = {
+            "field": AVG_VECTOR_FIELD_NAME_PART2,
+            "query_vector": query_avg_vector,
+            "k": 200,
+            "num_candidates": 500
+        }
+    else: # C. Rescore RAG search
+        index_name = INDEX_NAME_PART2
+        es_query_body.update({
+            "knn": {
+                "field": AVG_VECTOR_FIELD_NAME_PART2,
+                "query_vector": query_avg_vector,
+                "k": 200,
+                "num_candidates": 500
+            },
+            "rescore": {
+                "window_size": 50,
+                "query": {
+                    "rescore_query": {
+                        "script_score": {
+                            "query": {"match_all": {}},
+                            "script": {
+                                "source": f"maxSimDotProduct(params.query_vector, '{VECTOR_FIELD_NAME_PART2_MULTI}')",
+                                "params": {"query_vector": query_vectors_float}
+                            }
+                        }
+                    },
+                    "query_weight": 0.0,
+                    "rescore_query_weight": 1.0
+                }
+            }
+        })
+        
+    return index_name, es_query_body
 
 def get_media_type(image_path):
     """Determines the media type from the file extension."""
@@ -141,9 +202,18 @@ def generate_llm_answer_with_image(bedrock_client, query_text, hits):
         return f"Error reading or encoding the image file: {e}"
 
     # Construct the multimodal request payload for Claude 3
+    system_prompt = """You are an intelligent document analysis assistant. Your task is to analyze a document image that a search system has retrieved in response to a user's query. Your response should be structured as follows:
+
+1.  **Relevance Assessment**: Start by explaining how relevant the document is to the user's query.
+2.  **Summary**: Provide a concise summary of the document's key information.
+3.  **Direct Answer**: Directly answer the user's query based on the document's content.
+4.  **Contextual Explanation**: If the document is not a perfect match for the query, explain why it was likely the most relevant result found. You can describe the relationship between the user's query terms and the document's content. For instance, you could say, "While this document does not specifically mention [a key term from the query], it discusses [a related topic in the document], making it the most relevant document found."
+"""
+
     bedrock_request_body = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 2048,
+        "system": system_prompt,
         "messages": [
             {
                 "role": "user",
@@ -158,7 +228,7 @@ def generate_llm_answer_with_image(bedrock_client, query_text, hits):
                     },
                     {
                         "type": "text",
-                        "text": f"You are an expert document analysis AI. Analyze this document image carefully and answer the following question based only on what you see: '{query_text}'"
+                        "text": f"User Query: '{query_text}'\n\nPlease analyze the provided document image based on the instructions in the system prompt."
                     }
                 ],
             }
@@ -196,18 +266,18 @@ try:
     load_dotenv('elastic.env')
     load_dotenv('aws.env', override=True)
     
-    ELASTIC_HOST = os.getenv("ELASTIC_HOST")
-    ELASTIC_API_KEY = os.getenv("ELASTIC_API_KEY")
+    ES_URL = os.getenv("ES_URL")
+    ES_API_KEY = os.getenv("ES_API_KEY")
     AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY") 
     AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY") 
     AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
 
-    if not all([ELASTIC_HOST, ELASTIC_API_KEY, AWS_ACCESS_KEY, AWS_SECRET_KEY]):
+    if not all([ES_URL, ES_API_KEY, AWS_ACCESS_KEY, AWS_SECRET_KEY]):
         st.error("🚨 Credentials for Elasticsearch or AWS are missing. Please check your `.env` files.")
         st.stop()
         
     model, processor = load_colqwen_model()
-    es = connect_to_elasticsearch(ELASTIC_HOST, ELASTIC_API_KEY)
+    es = connect_to_elasticsearch(ES_URL, ES_API_KEY)
     bedrock = connect_to_bedrock(AWS_ACCESS_KEY, AWS_SECRET_KEY, AWS_REGION)
 except Exception as e:
     st.error(f"Failed to initialize. Error: {e}")
@@ -220,21 +290,14 @@ def set_query_text(text):
     st.session_state.query_text = text
 
 st.subheader("Example Queries")
-col1, col2 = st.columns(2)
-with col1:
-    st.button(
-        "Find the return request from the customer", 
-        on_click=set_query_text, 
-        args=("Find the return request from the customer",),
-        use_container_width=True
-    )
-with col2:
-    st.button(
-        "고객사에서 보낸 반품요청서를 찾아줘", 
-        on_click=set_query_text, 
-        args=("고객사에서 보낸 반품요청서를 찾아줘",),
-        use_container_width=True
-    )
+example_queries = [
+    "Do you have a benefits policy change notice from HR?",
+    "인사팀에서 보내온 복리후생 정책 변경 안내문이 있나?"
+]
+cols = st.columns(len(example_queries))
+for i, query in enumerate(example_queries):
+    with cols[i]:
+        st.button(query, on_click=set_query_text, args=(query,), use_container_width=True)
 
 # --- Search Form ---
 with st.form(key='search_form'):
@@ -257,45 +320,23 @@ if submitted:
     if not st.session_state.query_text:
         st.warning("Please enter a query to search.")
     else:
-        es_query_body = None
-        index_name = ""
-        
         with st.spinner("Step 1: Performing visual search with Colpali..."):
             try:
                 query_vectors_float = create_colqwen_query_vectors(st.session_state.query_text, model, processor)
-                
-                if search_mode.startswith("A."):
-                    index_name = INDEX_NAME_PART1
-                    es_query_body = {
-                        "size": 5,
-                        "query": {"script_score": {"query": {"match_all": {}}, "script": {"source": f"maxSimDotProduct(params.query_vector, '{VECTOR_FIELD_NAME_PART1}')", "params": {"query_vector": query_vectors_float}}}},
-                        "_source": ["image_path", "category"]
-                    }
-                
-                elif search_mode.startswith("B."):
-                    index_name = INDEX_NAME_PART2
-                    query_avg_vector = to_avg_vector(query_vectors_float)
-                    es_query_body = {
-                        "size": 5,
-                        "knn": {"field": AVG_VECTOR_FIELD_NAME_PART2, "query_vector": query_avg_vector, "k": 10, "num_candidates": 100},
-                        "_source": ["image_path", "category"]
-                    }
-                
-                else: 
-                    index_name = INDEX_NAME_PART2
-                    query_avg_vector = to_avg_vector(query_vectors_float)
-                    knn_query = {"field": AVG_VECTOR_FIELD_NAME_PART2, "query_vector": query_avg_vector, "k": 10, "num_candidates": 100}
-                    rescore_definition = {"window_size": 10, "query": {"rescore_query": {"script_score": {"query": {"match_all": {}}, "script": {"source": f"maxSimDotProduct(params.query_vector, '{VECTOR_FIELD_NAME_PART2_MULTI}')", "params": {"query_vector": query_vectors_float}}}}, "query_weight": 0.0, "rescore_query_weight": 1.0}}
-                    es_query_body = {"size": 5, "knn": knn_query, "rescore": rescore_definition, "_source": ["image_path", "category"]}
+                query_avg_vector = to_avg_vector(query_vectors_float) if not search_mode.startswith("A.") else None
 
+                index_name, es_query_body = build_es_query(search_mode, query_vectors_float, query_avg_vector)
+
+                start_time = time.time()
                 response = es.search(index=index_name, body=es_query_body)
+                end_time = time.time()
+                latency_ms = (end_time - start_time) * 1000
+                
                 hits = response["hits"]["hits"]
                 
                 st.subheader("Visual Search Results")
-                if not hits:
-                    st.warning("No matching documents found.")
-                else:
-                    display_results(hits)
+                st.metric(label="🚀 Search Latency", value=f"{latency_ms:.2f} ms")
+                display_results(hits)
                 
                 st.subheader("LLM Generated Answer from Top Image")
                 with st.spinner("Step 2: Analyzing image and generating answer with Bedrock..."):
@@ -304,4 +345,3 @@ if submitted:
 
             except Exception as e:
                 st.error(f"An error occurred during the process: {e}")
-

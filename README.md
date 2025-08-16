@@ -90,8 +90,8 @@ Create the following two `.env` files in the project root directory.
 
 * `elastic.env`:
     ```
-    ELASTIC_HOST=<your-elasticsearch-host-or-cloud-id>
-    ELASTIC_API_KEY=<your-elasticsearch-api-key>
+    ES_URL=<your-elasticsearch-url-or-cloud-id>
+    ES_API_KEY=<your-elasticsearch-api-key>
     ```
 * `aws.env`:
     ```

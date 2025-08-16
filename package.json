@@ -2,7 +2,13 @@
   "name": "colpali-mcp-demo",
   "version": "1.0.0",
   "description": "A demo project to connect Claude Desktop with Elasticsearch via MCP.",
+  "scripts": {
+    "start": "dotenv -e elastic.env -- npx @elastic/mcp-server-elasticsearch"
+  },
   "dependencies": {
     "@elastic/mcp-server-elasticsearch": "latest"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^10.0.0"
   }
 }
