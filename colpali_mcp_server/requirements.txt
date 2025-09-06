@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+elasticsearch
+torch
+transformers
+accelerate
+Pillow
+colpali-engine @ git+https://github.com/illuin-tech/colpali.git

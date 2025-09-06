@@ -1,0 +1,14 @@
+# Use an official Python runtime as a parent image
+FROM python:3.11-slim
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy the proxy script into the container
+COPY mcp_proxy_script.py .
+
+# Install the WebSocket client library
+RUN pip install websockets
+
+# Run the proxy script when the container launches
+CMD ["python", "mcp_proxy_script.py"]
