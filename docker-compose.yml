@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  colpali-mcp-server:
+    build:
+      context: ./colpali_mcp_server
+    image: colpali-mcp-server
+    environment:
+      - ES_URL=${ES_URL}
+      - ES_API_KEY=${ES_API_KEY}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  mcp-ws-proxy:
+    image: ghcr.io/byungjoochoi/colpali/mcp-ws-proxy:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - MCP_SERVER_COMMAND=docker exec -i colpali-mcp-server-1 python main.py
+      - PORT=8000
+    depends_on:
+      - colpali-mcp-server
