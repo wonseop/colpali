@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy the proxy script into the container
 COPY mcp_proxy_script.py .
 
-# Install the WebSocket client library
-RUN pip install websockets
+# Install the WebSocket client library (version 12.0 or higher is recommended)
+RUN pip install "websockets>=12.0"
 
 # Run the proxy script when the container launches
 CMD ["python", "mcp_proxy_script.py"]
