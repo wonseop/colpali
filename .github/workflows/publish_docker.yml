@@ -23,14 +23,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Lowercase repository name
-        id: string
-        run: echo "repository_lowercase=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile.proxy
           push: true
-          tags: ghcr.io/${{ steps.string.outputs.repository_lowercase }}/mcp-ws-proxy:latest
+          tags: ghcr.io/byungjoochoi/colpali/mcp-ws-proxy:latest

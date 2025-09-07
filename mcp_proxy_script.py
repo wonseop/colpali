@@ -1,7 +1,7 @@
 # This script acts as a proxy between a WebSocket server and stdio.
 # It is designed to be run inside a Docker container by Claude Desktop.
 # The user specifies the remote server address via the REMOTE_URL environment
-# variable in their local claude_desktop_config.json file.
+# variable in their local claude_desktop_config.json  file.
 
 import os
 import sys
