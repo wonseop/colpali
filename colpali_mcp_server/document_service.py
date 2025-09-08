@@ -1,11 +1,10 @@
 import logging
+import json
+import base64
 from typing import Any, Dict, List, Optional
 from elasticsearch import Elasticsearch
 import torch
 import numpy as np
-
-# Assuming model and processor are loaded and passed from main.py
-# This avoids direct dependency on model loading within the service.
 from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
 
 logger = logging.getLogger(__name__)
@@ -43,16 +42,25 @@ class DocumentService:
             return avg_vec.tolist()
         return (avg_vec / norm).tolist()
 
+    def _image_to_base64(self, image_path: str) -> Optional[str]:
+        """Reads an image file and returns its raw base64 encoded string."""
+        try:
+            with open(image_path, "rb") as image_file:
+                return base64.b64encode(image_file.read()).decode('utf-8')
+        except Exception as e:
+            logger.error(f"Error encoding image {image_path} to base64: {e}")
+            return None
+
     async def search(
         self,
         query: str,
-        k: int = 10,
+        k: int = 3, # Return top 3 images for context
         num_candidates: int = 100,
         rescore_window: int = 50,
         index_name: str = "colqwen-rvlcdip-demo-part2",
     ) -> List[Dict[str, Any]]:
         """
-        Performs a semantic search using Colpali embeddings.
+        Performs a semantic search and returns results with base64 encoded images.
         """
         try:
             logger.info(f"Performing search for query: '{query}'")
@@ -92,7 +100,22 @@ class DocumentService:
             
             response = self.es_client.search(index=index_name, body=es_query, size=k)
             logger.info(f"Search completed. Found {len(response['hits']['hits'])} results.")
-            return response["hits"]["hits"]
+            
+            results = []
+            for hit in response["hits"]["hits"]:
+                source = hit.get("_source", {})
+                image_path = source.get("image_path")
+                if image_path:
+                    image_base64 = self._image_to_base64(image_path)
+                    if image_base64:
+                        results.append({
+                            "score": hit.get("_score"),
+                            "image_path": image_path,
+                            "category": source.get("category"),
+                            "image_data": image_base64,
+                            "mime_type": "image/png" # Assuming PNG for simplicity
+                        })
+            return results
         except Exception as e:
             logger.error(f"Error during search: {e}", exc_info=True)
             raise ToolError(f"Error performing search: {str(e)}")
@@ -103,17 +126,13 @@ class DocumentService:
         offset: int = 0,
         index_name: str = "colqwen-rvlcdip-demo-part1",
     ) -> List[Dict[str, Any]]:
-        """Lists documents from a specified index."""
         try:
-            logger.info(f"Listing documents from index '{index_name}' with limit {limit} and offset {offset}.")
             response = self.es_client.search(
                 index=index_name,
                 body={"size": limit, "from": offset, "query": {"match_all": {}}},
             )
-            logger.info(f"Found {len(response['hits']['hits'])} documents.")
             return response["hits"]["hits"]
         except Exception as e:
-            logger.error(f"Error listing documents: {e}", exc_info=True)
             raise ToolError(f"Error listing documents: {str(e)}")
 
     async def get_document(
@@ -121,11 +140,8 @@ class DocumentService:
         document_id: str,
         index_name: str = "colqwen-rvlcdip-demo-part1",
     ) -> Dict[str, Any]:
-        """Retrieves a single document by its ID."""
         try:
-            logger.info(f"Getting document '{document_id}' from index '{index_name}'.")
             response = self.es_client.get(index=index_name, id=document_id)
             return response["_source"]
         except Exception as e:
-            logger.error(f"Error getting document: {e}", exc_info=True)
             raise ToolError(f"Error getting document: {str(e)}")

@@ -35,23 +35,13 @@ While powerful, ColPali has trade-offs, such as high memory usage for multi-vect
 
 ### 5. Multimodal RAG: Direct Integration with Amazon Bedrock (Part 3)
 
-One of the core features of this project is a RAG pipeline that directly combines Colpali's sophisticated visual search with Amazon Bedrock's multimodal LLMs.
-
-**How it works:**
-
-1.  **Retrieval**: A user's text query is converted into a vector by the Colpali model to find the most visually similar documents in Elasticsearch.
-2.  **Image Context Preparation**: The path of the top-ranked image from the search results is retrieved and the image is encoded into a Base64 string.
-3.  **Generation**: The AWS SDK (`boto3`) is used to call the Amazon Bedrock API directly. A **multimodal prompt**, containing both the user's original text query and the Base64-encoded image, is sent to the model.
-4.  **Answer**: A multimodal LLM like Claude 3 **directly "sees" and analyzes** the image content to generate a specific and accurate answer to the user's question.
-
-This approach maximizes the quality of the RAG system's responses by allowing the LLM to analyze visual information directly. This is implemented in the `03_colpali_rag.ipynb` notebook and the `colpali_rag_demo.py` Streamlit app.
+One of the core features of this project is a RAG pipeline that directly combines Colpali's sophisticated visual search with Amazon Bedrock's multimodal LLMs. This is implemented in the `03_colpali_rag.ipynb` notebook and the `colpali_rag_demo.py` Streamlit app.
 
 ### 6. Advanced RAG: MCP and Claude Desktop Integration (Part 4)
 
 The next phase of the project involves building a system where an LLM agent, such as Claude Desktop, can interact with our Elasticsearch-based document store in natural language via the **MCP (Model Context Protocol)**.
 
-* **What is MCP?**: A protocol designed to allow LLM agents to interact with external tools and data sources. Our custom server allows Claude to perform natural language queries against our ColPali index.
-* **How it works**: The `colpali-mcp-server` runs on a remote server (e.g., EC2). On the user's local machine, Claude Desktop runs the official `mcp-proxy`, which connects to the remote server. This allows Claude to use the custom `search` tool to query the document store.
+* **Architecture**: The `colpali-mcp-server` runs on a remote server (e.g., EC2) as a `streamable-http` server built with the official MCP Python SDK. On the user's local machine, Claude Desktop runs the official `mcp-proxy`, which connects to the remote server. This allows Claude to use the custom `search` tool to retrieve document images as context for its own internal RAG process.
 * **Advantages**: This **agent-based interaction** enables users to perform complex, sequential tasks in natural language, such as "Find documents related to financial reports, then search within them for the Q3 earnings."
 
 The setup process for this is detailed in the `04_rag_with_colpali_mcp.ipynb` notebook.
@@ -61,15 +51,13 @@ The setup process for this is detailed in the `04_rag_with_colpali_mcp.ipynb` no
 The project consists of Jupyter Notebooks for data indexing and logic validation, and Streamlit apps for interactive demos.
 
 * **Jupyter Notebooks**:
-    * `01_colqwen.ipynb`: Builds the basic Colpali index using `rank_vectors`.
-    * `02_avg_colqwen.ipynb`: Creates an optimized index with average vectors, BBQ, and rescoring.
+    * `01_colqwen.ipynb`: Builds the basic Colpali index.
+    * `02_avg_colqwen.ipynb`: Creates an optimized index.
     * `03_colpali_rag.ipynb`: Tests the multimodal RAG architecture using `boto3`.
     * `04_rag_with_colpali_mcp.ipynb`: Guides through setting up the MCP server and Claude Desktop integration.
 
 * **Streamlit Apps**:
-    * `app_part1.py`: A basic demo for the Part 1 `rank_vectors` search.
-    * `app_integrated.py`: An integrated comparison demo for the Part 1 search with the Part 2 optimization techniques (average vector, rescore).
-    * `colpali_rag_demo.py`: The final demo application showcasing the multimodal RAG pipeline from Part 3.
+    * `app_part1.py`, `app_integrated.py`, `colpali_rag_demo.py`: Various demo applications.
 
 ### 8. Setup and Execution Guide
 
@@ -83,60 +71,33 @@ cd colpali
 ```bash
 pip install -r requirements.txt
 ```
-*(Note: Ensure `boto3` is included in your `requirements.txt` file.)*
 
 **Step 3: Configure Credentials**
-Create the following two `.env` files in the project root directory.
-
-* `elastic.env`:
-    ```
-    ES_URL=<your-elasticsearch-url-or-cloud-id>
-    ES_API_KEY=<your-elasticsearch-api-key>
-    ```
-* `aws.env`:
-    ```
-    AWS_ACCESS_KEY=<your-aws-access-key>
-    AWS_SECRET_KEY=<your-aws-secret-key>
-    AWS_REGION=<your-aws-region>
-    ```
+Create `elastic.env` and `aws.env` files in the project root directory with your credentials.
 
 **Step 4: Run Jupyter Notebooks & MCP Server**
-Run `jupyter lab` in your terminal, then execute the notebooks in the following order to index the data and verify each step:
-1.  `01_colqwen.ipynb`
-2.  `02_avg_colqwen.ipynb`
-3.  `03_colpali_rag.ipynb`
-4.  On your remote server (e.g., EC2), build and run the MCP server:
+1.  Run `jupyter lab` and execute notebooks `01` through `03` to index data.
+2.  On your **remote server (e.g., EC2)**, build and run the MCP server:
     ```bash
     # Build the Docker image
     docker build -t colpali-mcp-server ./colpali_mcp_server
 
-    # Run the container (replace with your actual ES_URL and ES_API_KEY)
-    docker run -d --rm --name colpali-mcp-server -p 8000:8000 --gpus all -e ES_URL=<your-es-url> -e ES_API_KEY=<your-es-api-key> colpali-mcp-server
+    # Run the container with your environment variables
+    docker run -d --rm --name colpali-mcp-server -p 8000:8000 --gpus all --env-file ./elastic.env colpali-mcp-server
     ```
-5.  Run `04_rag_with_colpali_mcp.ipynb` locally to generate your Claude Desktop configuration.
+3.  On your **local machine**, install the official MCP proxy:
+    ```bash
+    pip install mcp-proxy
+    ```
+4.  Run the `04_rag_with_colpali_mcp.ipynb` notebook locally to generate your Claude Desktop configuration.
 
 **Step 5: Run Streamlit Demo Apps**
-Run one of the following commands in your terminal:
-```bash
-# Basic search demo for Part 1
-streamlit run app_part1.py
-
-# Integrated comparison demo for Part 1 & 2
-streamlit run app_integrated.py
-
-# Final multimodal RAG demo for Part 3
-streamlit run colpali_rag_demo.py
-```
+Run one of the `streamlit run <app_name>.py` commands.
 
 ### 9. Troubleshooting
 
-* **Credential Errors**: Verify that the information in your `.env` files is correct and that the keys have the necessary permissions. For Bedrock, ensure that you have enabled model access for the desired model (e.g., Claude 3 Haiku) in the AWS Console.
-* **Dependency Conflicts**: If you encounter library version conflicts, it is highly recommended to use a Python virtual environment.
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows: venv\\Scripts\\activate
-    pip install -r requirements.txt
-    ```
+* **Credential Errors**: Ensure your `.env` files are correct and the keys have necessary permissions.
+* **Dependency Conflicts**: Use a Python virtual environment.
 
 ---
-This project demonstrates how to build a next-generation enterprise document search system that overcomes the limitations of traditional methods by integrating state-of-the-art visual search and multimodal generative AI.
+This project demonstrates how to build a next-generation enterprise document search system by integrating state-of-the-art visual search and multimodal generative AI.
