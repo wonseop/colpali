@@ -9,9 +9,10 @@ import time
 from elasticsearch import Elasticsearch
 from dotenv import load_dotenv
 from PIL import Image
-import boto3
 import base64
 import json
+import requests
+import boto3
 from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
 
 # --- 1. Page Configuration and Constants ---
@@ -21,14 +22,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Constants for Elasticsearch, Models, and Bedrock ---
+# --- Constants for Elasticsearch, Models, OpenAI and Bedrock ---
 INDEX_NAME_PART1 = "colqwen-rvlcdip-demo-part1"
 VECTOR_FIELD_NAME_PART1 = "colqwen_vectors"
 INDEX_NAME_PART2 = "colqwen-rvlcdip-demo-part2" # Corrected for consistency
 VECTOR_FIELD_NAME_PART2_MULTI = "colqwen_vectors" # Corrected for consistency
 AVG_VECTOR_FIELD_NAME_PART2 = "colqwen_avg_vector"
 MODEL_NAME = "tsystems/colqwen2.5-3b-multilingual-v1.0"
-# FIX: Switched to Claude 3 Haiku, which is more likely to be available for On-Demand throughput.
 BEDROCK_MODEL_ID = "anthropic.claude-3-haiku-20240307-v1:0" 
 
 # --- 2. Caching and Helper Functions ---
@@ -61,7 +61,7 @@ def connect_to_elasticsearch(elastic_host, api_key):
     if ":" in elastic_host and not elastic_host.startswith("http"):
         es = Elasticsearch(cloud_id=elastic_host, api_key=api_key, request_timeout=30)
     else:
-        es = Elasticsearch(hosts=[elastic_host], api_key=api_key, request_timeout=30)
+        es = Elasticsearch(hosts=[elastic_host], api_key=api_key, request_timeout=30, verify_certs=False, ssl_show_warn=False)
     return es
 
 @st.cache_resource
@@ -76,6 +76,14 @@ def connect_to_bedrock(aws_access_key, aws_secret_key, region_name):
     )
     st.success("Connected to Bedrock successfully.")
     return bedrock_client
+
+SYSTEM_PROMPT = """You are an intelligent document analysis assistant. Your task is to analyze a document image that a search system has retrieved in response to a user's query. Your response should be structured as follows:
+
+1.  **Relevance Assessment**: Start by explaining how relevant the document is to the user's query.
+2.  **Summary**: Provide a concise summary of the document's key information.
+3.  **Direct Answer**: Directly answer the user's query based on the document's content.
+4.  **Contextual Explanation**: If the document is not a perfect match for the query, explain why it was likely the most relevant result found. You can describe the relationship between the user's query terms and the document's content. For instance, you could say, "While this document does not specifically mention [a key term from the query], it discusses [a related topic in the document], making it the most relevant document found."
+"""
 
 def create_colqwen_query_vectors(query_text, model, processor):
     """Creates multi-vector embeddings for a text query."""
@@ -106,7 +114,7 @@ def display_results(hits):
             category = hit["_source"]["category"]
             if os.path.exists(path):
                 image = Image.open(path)
-                st.image(image, caption=f"Category: {category}", use_container_width=True)
+                st.image(image, caption=f"Category: {category}", width='stretch')
             else:
                 st.warning(f"Image not found at: {path}")
             st.metric(label="Score", value=f"{score:.4f}")
@@ -180,8 +188,72 @@ def get_media_type(image_path):
     else:
         return "image/jpeg" # Default to JPEG
 
-def generate_llm_answer_with_image(bedrock_client, query_text, hits):
-    """Encodes the top image, creates a multimodal prompt, and generates an answer using Bedrock."""
+def generate_with_openai(openai_base_url, openai_api_key, openai_model, query_text, image_base64, image_path):
+    """Generate answer using OpenAI Compatible API."""
+    media_type = get_media_type(image_path)
+    
+    headers = {
+        "Authorization": f"Bearer {openai_api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    openai_request = {
+        "model": openai_model,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{media_type};base64,{image_base64}"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": f"User Query: '{query_text}'\n\nPlease analyze the provided document image."
+                    }
+                ]
+            }
+        ],
+        "max_tokens": 2048
+    }
+    
+    response = requests.post(
+        f"{openai_base_url}/chat/completions",
+        headers=headers,
+        json=openai_request,
+        timeout=120
+    )
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
+
+def generate_with_bedrock(bedrock_client, query_text, image_base64, image_path):
+    """Generate answer using AWS Bedrock."""
+    bedrock_request_body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 2048,
+        "system": SYSTEM_PROMPT,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": get_media_type(image_path), "data": image_base64}},
+                {"type": "text", "text": f"User Query: '{query_text}'\n\nPlease analyze the provided document image."}
+            ]
+        }]
+    }
+    response = bedrock_client.invoke_model(
+        body=json.dumps(bedrock_request_body),
+        modelId=BEDROCK_MODEL_ID,
+        contentType="application/json",
+        accept="application/json"
+    )
+    response_body = json.loads(response.get("body").read())
+    return response_body.get("content", [{}])[0].get("text", "No response generated.")
+
+def generate_llm_answer_with_image(llm_backend, query_text, hits, **backend_config):
+    """Encodes the top image and generates an answer using the selected LLM backend."""
     if not hits:
         return "No documents were found by the search engine, so I cannot generate an answer."
 
@@ -192,7 +264,7 @@ def generate_llm_answer_with_image(bedrock_client, query_text, hits):
     if not image_path or not os.path.exists(image_path):
         return "The top search result did not have a valid image path, so I cannot analyze it."
 
-    st.info(f"Analyzing top image for context: `{image_path}`")
+    st.info(f"Analyzing top image with {llm_backend}: `{image_path}`")
 
     # Encode the image to Base64
     try:
@@ -201,55 +273,29 @@ def generate_llm_answer_with_image(bedrock_client, query_text, hits):
     except Exception as e:
         return f"Error reading or encoding the image file: {e}"
 
-    # Construct the multimodal request payload for Claude 3
-    system_prompt = """You are an intelligent document analysis assistant. Your task is to analyze a document image that a search system has retrieved in response to a user's query. Your response should be structured as follows:
-
-1.  **Relevance Assessment**: Start by explaining how relevant the document is to the user's query.
-2.  **Summary**: Provide a concise summary of the document's key information.
-3.  **Direct Answer**: Directly answer the user's query based on the document's content.
-4.  **Contextual Explanation**: If the document is not a perfect match for the query, explain why it was likely the most relevant result found. You can describe the relationship between the user's query terms and the document's content. For instance, you could say, "While this document does not specifically mention [a key term from the query], it discusses [a related topic in the document], making it the most relevant document found."
-"""
-
-    bedrock_request_body = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 2048,
-        "system": system_prompt,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": get_media_type(image_path),
-                            "data": image_base64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": f"User Query: '{query_text}'\n\nPlease analyze the provided document image based on the instructions in the system prompt."
-                    }
-                ],
-            }
-        ],
-    }
-
-    # Call the Bedrock API
+    # Call the appropriate LLM backend
     try:
-        response = bedrock_client.invoke_model(
-            body=json.dumps(bedrock_request_body),
-            modelId=BEDROCK_MODEL_ID,
-            contentType="application/json",
-            accept="application/json",
-        )
-        response_body = json.loads(response.get("body").read())
-        
-        # Extract the text content from the response
-        result = response_body.get("content", [{}])[0].get("text", "No response generated.")
+        if llm_backend == "OpenAI":
+            result = generate_with_openai(
+                backend_config['openai_base_url'],
+                backend_config['openai_api_key'],
+                backend_config['openai_model'],
+                query_text,
+                image_base64,
+                image_path
+            )
+        elif llm_backend == "AWS Bedrock":
+            result = generate_with_bedrock(
+                backend_config['bedrock_client'],
+                query_text,
+                image_base64,
+                image_path
+            )
+        else:
+            result = "Unknown LLM backend selected."
         return result
     except Exception as e:
-        st.error(f"Error calling Bedrock API: {e}")
+        st.error(f"Error calling {llm_backend}: {e}")
         return f"An error occurred while communicating with the LLM: {e}"
 
 
@@ -257,28 +303,82 @@ def generate_llm_answer_with_image(bedrock_client, query_text, hits):
 
 st.title("Colpali Multimodal RAG Search Demo")
 st.markdown(
-    "This app integrates **Colpali visual search** with a **multimodal LLM (Claude 3 Haiku)**. "
+    "This app integrates **Colpali visual search** with **multimodal LLMs (OpenAI Compatible API or AWS Bedrock)**. "
     "The system first finds relevant images and then sends the top image to the LLM for direct analysis and answering."
 )
 
 # --- Initialization and Connection ---
 try:
+    # Load Elasticsearch credentials
     load_dotenv('elastic.env')
-    load_dotenv('aws.env', override=True)
-    
     ES_URL = os.getenv("ES_URL")
     ES_API_KEY = os.getenv("ES_API_KEY")
-    AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY") 
-    AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY") 
-    AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
-
-    if not all([ES_URL, ES_API_KEY, AWS_ACCESS_KEY, AWS_SECRET_KEY]):
-        st.error("🚨 Credentials for Elasticsearch or AWS are missing. Please check your `.env` files.")
+    
+    if not all([ES_URL, ES_API_KEY]):
+        st.error("🚨 Elasticsearch credentials are missing. Please check your `elastic.env` file.")
         st.stop()
-        
+    
+    # Connect to Elasticsearch and load model
     model, processor = load_colqwen_model()
     es = connect_to_elasticsearch(ES_URL, ES_API_KEY)
-    bedrock = connect_to_bedrock(AWS_ACCESS_KEY, AWS_SECRET_KEY, AWS_REGION)
+    
+    # --- Auto-detect available LLM backends ---
+    AVAILABLE_LLM_BACKENDS = []
+    
+    # Check for OpenAI Compatible API
+    OPENAI_BASE_URL = None
+    OPENAI_API_KEY = None
+    OPENAI_MODEL = None
+    if os.path.exists('openai.env'):
+        load_dotenv('openai.env', override=True)
+        OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+        OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        
+        try:
+            headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"} if OPENAI_API_KEY else {}
+            openai_test = requests.get(f"{OPENAI_BASE_URL}/models", headers=headers, timeout=10)
+            if openai_test.status_code == 200:
+                st.success(f"✅ OpenAI Compatible API detected at: {OPENAI_BASE_URL}")
+                st.info(f"Using model: {OPENAI_MODEL}")
+                AVAILABLE_LLM_BACKENDS.append("OpenAI")
+            else:
+                # Some providers don't support /models endpoint, try anyway
+                st.success(f"✅ OpenAI Compatible API configured at: {OPENAI_BASE_URL}")
+                st.info(f"Using model: {OPENAI_MODEL}")
+                AVAILABLE_LLM_BACKENDS.append("OpenAI")
+        except requests.exceptions.RequestException as e:
+            st.warning(f"⚠️ openai.env exists but cannot connect to {OPENAI_BASE_URL}: {e}")
+    else:
+        st.info("ℹ️ openai.env not found - OpenAI backend disabled")
+    
+    # Check for AWS Bedrock
+    BEDROCK_CLIENT = None
+    AWS_REGION = None
+    if os.path.exists('aws.env'):
+        load_dotenv('aws.env', override=True)
+        AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY", "")
+        AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY", "")
+        AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
+        
+        if AWS_ACCESS_KEY and AWS_SECRET_KEY and AWS_ACCESS_KEY != "<your-aws-access-key>":
+            try:
+                BEDROCK_CLIENT = connect_to_bedrock(AWS_ACCESS_KEY, AWS_SECRET_KEY, AWS_REGION)
+                AVAILABLE_LLM_BACKENDS.append("AWS Bedrock")
+            except Exception as e:
+                st.warning(f"⚠️ aws.env exists but cannot connect to Bedrock: {e}")
+        else:
+            st.warning("⚠️ aws.env exists but credentials are not set properly")
+    else:
+        st.info("ℹ️ aws.env not found - AWS Bedrock backend disabled")
+    
+    # Check if at least one backend is available
+    if not AVAILABLE_LLM_BACKENDS:
+        st.error("❌ No LLM backends available! Please create openai.env or aws.env")
+        st.stop()
+    else:
+        st.success(f"🎉 Available LLM backends: {', '.join(AVAILABLE_LLM_BACKENDS)}")
+        
 except Exception as e:
     st.error(f"Failed to initialize. Error: {e}")
     st.stop()
@@ -297,7 +397,7 @@ example_queries = [
 cols = st.columns(len(example_queries))
 for i, query in enumerate(example_queries):
     with cols[i]:
-        st.button(query, on_click=set_query_text, args=(query,), use_container_width=True)
+        st.button(query, on_click=set_query_text, args=(query,), width='stretch')
 
 # --- Search Form ---
 with st.form(key='search_form'):
@@ -306,12 +406,21 @@ with st.form(key='search_form'):
         value=st.session_state.query_text,
         key='search_input'
     )
-    search_mode = st.radio(
-        "Select Search Mode:",
-        ["A. Colpali(colqwen) RAG search (Part 1)", "B. Average RAG search (Part 2 - KNN Only)", "C. Rescore RAG search (Part 2 - KNN + Rescore)"],
-        index=0,
-        horizontal=True
-    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        search_mode = st.radio(
+            "Select Search Mode:",
+            ["A. Colpali(colqwen) RAG search (Part 1)", "B. Average RAG search (Part 2 - KNN Only)", "C. Rescore RAG search (Part 2 - KNN + Rescore)"],
+            index=0
+        )
+    with col2:
+        llm_backend = st.radio(
+            "Select LLM Backend:",
+            AVAILABLE_LLM_BACKENDS,
+            index=0
+        )
+    
     submitted = st.form_submit_button("Search and Generate Answer")
 
 # --- Form Submission Logic ---
@@ -339,8 +448,21 @@ if submitted:
                 display_results(hits)
                 
                 st.subheader("LLM Generated Answer from Top Image")
-                with st.spinner("Step 2: Analyzing image and generating answer with Bedrock..."):
-                    llm_answer = generate_llm_answer_with_image(bedrock, st.session_state.query_text, hits)
+                with st.spinner(f"Step 2: Analyzing image and generating answer with {llm_backend}..."):
+                    # Prepare backend configuration
+                    backend_config = {}
+                    if llm_backend == "OpenAI":
+                        backend_config = {
+                            'openai_base_url': OPENAI_BASE_URL,
+                            'openai_api_key': OPENAI_API_KEY,
+                            'openai_model': OPENAI_MODEL
+                        }
+                    elif llm_backend == "AWS Bedrock":
+                        backend_config = {
+                            'bedrock_client': BEDROCK_CLIENT
+                        }
+                    
+                    llm_answer = generate_llm_answer_with_image(llm_backend, st.session_state.query_text, hits, **backend_config)
                     st.markdown(llm_answer)
 
             except Exception as e:

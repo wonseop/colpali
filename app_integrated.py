@@ -61,9 +61,19 @@ def connect_to_elasticsearch(elastic_host, api_key):
     """Connects to Elasticsearch with a timeout."""
     st.info("Connecting to Elasticsearch...")
     if ":" in elastic_host and not elastic_host.startswith("http"):
-        es = Elasticsearch(cloud_id=elastic_host, api_key=api_key, request_timeout=30)
+        es = Elasticsearch(
+            cloud_id=elastic_host, 
+            api_key=api_key, 
+            request_timeout=30
+        )
     else:
-        es = Elasticsearch(hosts=[elastic_host], api_key=api_key, request_timeout=30)
+        es = Elasticsearch(
+            hosts=[elastic_host], 
+            api_key=api_key, 
+            request_timeout=30,
+            verify_certs=False,
+            ssl_show_warn=False
+        )
     st.success("Connected to Elasticsearch.")
     return es
 
