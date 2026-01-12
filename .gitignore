@@ -12,6 +12,7 @@ venv/
 env/
 aws.env
 elastic.env
+openai.env
 
 # IDEs and editors
 .vscode/

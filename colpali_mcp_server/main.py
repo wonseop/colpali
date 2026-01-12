@@ -3,7 +3,7 @@ import asyncio
 import torch
 import sys
 from dotenv import load_dotenv
-from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
+from colpali_engine.models import ColQwen3, ColQwen3Processor
 from elasticsearch import Elasticsearch
 from document_service import DocumentService
 from mcp.server.fastmcp import FastMCP
@@ -14,7 +14,7 @@ from mcp.types import ImageContent, TextContent
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', 'elastic.env'))
 ES_URL = os.getenv("ES_URL")
 ES_API_KEY = os.getenv("ES_API_KEY")
-MODEL_NAME = "tsystems/colqwen2.5-3b-multilingual-v1.0"
+MODEL_NAME = "TomoroAI/tomoro-colqwen3-embed-4b"
 
 # --- Globals ---
 document_service: DocumentService = None
@@ -31,7 +31,7 @@ async def search(
     k: int = 3,
     num_candidates: int = 100,
     rescore_window: int = 50,
-    index_name: str = "colqwen-rvlcdip-demo-part2",
+    index_name: str = "colqwen3-rvlcdip-demo-part2",
 ) -> list:
     """Performs a semantic search and returns images as context."""
     if not document_service:
@@ -61,7 +61,7 @@ async def search(
 async def list_documents(
     limit: int = 100,
     offset: int = 0,
-    index_name: str = "colqwen-rvlcdip-demo-part1",
+    index_name: str = "colqwen3-rvlcdip-demo-part1",
 ) -> list:
     """Lists documents from a specified index."""
     if not document_service:
@@ -71,7 +71,7 @@ async def list_documents(
 @mcp_server.tool()
 async def get_document(
     document_id: str,
-    index_name: str = "colqwen-rvlcdip-demo-part1",
+    index_name: str = "colqwen3-rvlcdip-demo-part1",
 ) -> dict:
     """Retrieves a single document by its ID."""
     if not document_service:
@@ -92,12 +92,14 @@ async def lifespan(app: FastMCP):
         device_map = "cuda:0"
     
     print(f"Loading model '{MODEL_NAME}' on device '{device_map}'...", file=sys.stderr)
-    model = ColQwen2_5.from_pretrained(
+    model = ColQwen3.from_pretrained(
         MODEL_NAME,
         torch_dtype=torch.bfloat16 if device_map != "cpu" else torch.float32,
-        device_map=device_map
+        device_map=device_map,
+        attn_implementation="flash_attention_2",
+        trust_remote_code=True
     ).eval()
-    processor = ColQwen2_5_Processor.from_pretrained(MODEL_NAME)
+    processor = ColQwen3Processor.from_pretrained(MODEL_NAME)
     print("Model loaded successfully.", file=sys.stderr)
 
     print("Connecting to Elasticsearch...", file=sys.stderr)

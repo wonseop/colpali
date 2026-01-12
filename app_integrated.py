@@ -13,7 +13,8 @@ import re
 from elasticsearch import Elasticsearch
 from dotenv import load_dotenv
 from PIL import Image
-from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
+from colpali_engine.models import ColQwen3, ColQwen3Processor
+from transformers import AutoConfig
 
 # --- 1. Page Configuration and Constants ---
 st.set_page_config(
@@ -23,13 +24,13 @@ st.set_page_config(
 )
 
 # Constants for different search modes
-INDEX_NAME_PART1 = "colqwen-rvlcdip-demo-part1"
+INDEX_NAME_PART1 = "colqwen3-rvlcdip-demo-part1"
 VECTOR_FIELD_NAME_PART1 = "colqwen_vectors"
-INDEX_NAME_PART2 = "colqwen-rvlcdip-demo-part2" # Corrected index name
+INDEX_NAME_PART2 = "colqwen3-rvlcdip-demo-part2" # Corrected index name
 # FIX: This variable must point to the multi-vector field in the Part 2 index, which is 'colqwen_vectors'
 VECTOR_FIELD_NAME_PART2_MULTI = "colqwen_vectors" 
 AVG_VECTOR_FIELD_NAME_PART2 = "colqwen_avg_vector"
-MODEL_NAME = "tsystems/colqwen2.5-3b-multilingual-v1.0"
+MODEL_NAME = "TomoroAI/tomoro-colqwen3-embed-4b"
 
 # Initialize session state
 if 'query_text' not in st.session_state:
@@ -46,13 +47,30 @@ def load_colqwen_model():
         device_map = "mps"
     elif torch.cuda.is_available():
         device_map = "cuda:0"
-    
-    model = ColQwen2_5.from_pretrained(
+
+    # Load config first and fix rope_scaling if None
+    config = AutoConfig.from_pretrained(MODEL_NAME, trust_remote_code=True)
+    if hasattr(config, 'text_config') and config.text_config.rope_scaling is None:
+        config.text_config.rope_scaling = {"mrope_section": [24, 20, 20], "type": "default"}
+
+    # Try flash_attention_2 first, fall back to sdpa if not available
+    attn_impl = "flash_attention_2" if device_map != "cpu" else "eager"
+    try:
+        import flash_attn
+    except ImportError:
+        attn_impl = "sdpa" if device_map != "cpu" else "eager"
+        print(f"flash-attn not installed, using '{attn_impl}' attention instead.")
+
+    model = ColQwen3.from_pretrained(
         MODEL_NAME,
+        config=config,
         torch_dtype=torch.bfloat16 if device_map != "cpu" else torch.float32,
-        device_map=device_map
+        device_map=device_map,
+        attn_implementation=attn_impl,
+        trust_remote_code=True
     ).eval()
-    processor = ColQwen2_5_Processor.from_pretrained(MODEL_NAME, use_fast=True)
+
+    processor = ColQwen3Processor.from_pretrained(MODEL_NAME, use_fast=True)
     st.success("Model loaded successfully.")
     return model, processor
 

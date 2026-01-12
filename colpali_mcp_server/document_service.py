@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from elasticsearch import Elasticsearch
 import torch
 import numpy as np
-from colpali_engine.models import ColQwen2_5, ColQwen2_5_Processor
+from colpali_engine.models import ColQwen3, ColQwen3Processor
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +17,8 @@ class DocumentService:
     def __init__(
         self,
         es_client: Elasticsearch,
-        model: ColQwen2_5,
-        processor: ColQwen2_5_Processor,
+        model: ColQwen3,
+        processor: ColQwen3Processor,
     ):
         if not es_client:
             raise ValueError("Elasticsearch client is not initialized.")
@@ -57,7 +57,7 @@ class DocumentService:
         k: int = 3, # Return top 3 images for context
         num_candidates: int = 100,
         rescore_window: int = 50,
-        index_name: str = "colqwen-rvlcdip-demo-part2",
+        index_name: str = "colqwen3-rvlcdip-demo-part2",
     ) -> List[Dict[str, Any]]:
         """
         Performs a semantic search and returns results with base64 encoded images.
@@ -124,7 +124,7 @@ class DocumentService:
         self,
         limit: int = 100,
         offset: int = 0,
-        index_name: str = "colqwen-rvlcdip-demo-part1",
+        index_name: str = "colqwen3-rvlcdip-demo-part1",
     ) -> List[Dict[str, Any]]:
         try:
             response = self.es_client.search(
@@ -138,7 +138,7 @@ class DocumentService:
     async def get_document(
         self,
         document_id: str,
-        index_name: str = "colqwen-rvlcdip-demo-part1",
+        index_name: str = "colqwen3-rvlcdip-demo-part1",
     ) -> Dict[str, Any]:
         try:
             response = self.es_client.get(index=index_name, id=document_id)

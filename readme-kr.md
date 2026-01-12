@@ -13,11 +13,11 @@
 - **OCR 의존성 감소**: OCR 없이도 문서 이미지를 직접 처리할 수 있어, OCR 오류로 인한 정보 손실을 방지합니다.
 - **효율적인 검색**: 다중 벡터(multi-vector) 표현을 통해 쿼리와 문서 간의 세밀한 매칭을 가능하게 하며, 대규모 문서 컬렉션에서도 빠른 검색을 지원합니다.
 
-## 2. ColPali 대신 tsystems/colqwen2.5-3b-multilingual-v1.0 선택 이유와 장점
+## 2. ColPali 대신 TomoroAI/tomoro-colqwen3-embed-4b 선택 이유와 장점
 
-이 프로젝트에서는 원래의 ColPali 모델 대신 `tsystems/colqwen2.5-3b-multilingual-v1.0` 모델을 선택하여 사용했습니다. 이 모델은 Qwen2.5-VL-3B를 기반으로 한 ColBERT 스타일의 다중 벡터 표현을 생성하는 확장판으로, 다음과 같은 이유와 장점으로 선택되었습니다:
+이 프로젝트에서는 원래의 ColPali 모델 대신 `TomoroAI/tomoro-colqwen3-embed-4b` 모델을 선택하여 사용했습니다. 이 모델은 Qwen3-VL-4B-Instruct를 기반으로 한 ColBERT 스타일의 다중 벡터 표현을 생성하는 확장판으로, 다음과 같은 이유와 장점으로 선택되었습니다:
 
-- **다국어 지원**: `colqwen2.5-3b-multilingual-v1.0`은 영어와 독일어를 포함한 여러 언어를 지원하는 데이터셋으로 학습되었습니다. 이는 글로벌 기업 환경에서 다양한 언어로 작성된 문서를 처리해야 하는 요구사항에 적합합니다.
+- **다국어 지원**: `tomoro-colqwen3-embed-4b `은 영어와 독일어를 포함한 여러 언어를 지원하는 데이터셋으로 학습되었습니다. 이는 글로벌 기업 환경에서 다양한 언어로 작성된 문서를 처리해야 하는 요구사항에 적합합니다.
 - **효율적인 아키텍처**: Qwen2.5-VL-3B 기반으로 설계된 이 모델은 3B 파라미터 규모로, 원본 ColPali보다 경량화되어 더 적은 리소스로도 높은 성능을 발휘합니다. 특히, 8xH100 GPU 환경에서 `bfloat16` 형식으로 학습된 이 모델은 메모리 효율성이 뛰어납니다.
 - **동적 이미지 해상도 처리**: 이 모델은 고정된 해상도가 아닌 동적 해상도를 지원하며, 이미지 패치 수를 최대 768개로 제한하여 메모리 사용량과 검색 품질 간의 균형을 맞춥니다. 이는 다양한 크기와 품질의 문서 이미지를 처리하는 데 유리합니다.
 - **커뮤니티 검증**: Hugging Face에서 41,000회 이상 다운로드된 이 모델은 이미 많은 사용자와 연구자들에 의해 검증되었으며, 안정적인 성능을 보장합니다.
@@ -79,8 +79,8 @@ Elastic의 MCP 통합을 통해 다음을 수행할 수 있습니다:
 이 프로젝트는 Jupyter Notebook을 통해 인덱싱 및 검색 로직을 실행한 뒤, 생성된 인덱스를 Streamlit 앱으로 시각화하여 결과를 확인할 수 있도록 설계되었습니다. 실행 단계는 다음과 같습니다:
 
 - **Jupyter Notebook 실행**:
-  - **Part 1 (`01_colqwen.ipynb`)**: ColPali 기반의 기본 `rank_vectors` 검색을 구현하며, `colqwen-rvlcdip-demo-part1` 인덱스를 생성합니다.
-  - **Part 2 (`02_avg_colqwen.ipynb`)**: 평균 벡터와 BBQ, 리스코어링 최적화를 구현하며, `colqwen-rvlcdip-demo-part2` 인덱스를 생성합니다.
+  - **Part 1 (`01_colqwen.ipynb`)**: ColPali 기반의 기본 `rank_vectors` 검색을 구현하며, `colqwen3-rvlcdip-demo-part1` 인덱스를 생성합니다.
+  - **Part 2 (`02_avg_colqwen.ipynb`)**: 평균 벡터와 BBQ, 리스코어링 최적화를 구현하며, `colqwen3-rvlcdip-demo-part2` 인덱스를 생성합니다.
   - **Part 3 (`03_rag_with_inference_api.ipynb`)**: Elastic Inference API를 사용한 RAG 데모를 구현하여 Amazon Bedrock과 연동된 LLM 응답 생성을 보여줍니다.
   - **Part 4 (`04_rag_with_mcp_claude.ipynb`)**: Elastic MCP 서버와 Claude Desktop을 활용한 RAG 데모를 구현하여 자연어 기반의 에이전트 상호작용을 보여줍니다.
   - 각 노트북을 순차적으로 실행하면, RVL-CDIP 샘플 데이터를 기반으로 Elasticsearch에 인덱스가 생성됩니다.

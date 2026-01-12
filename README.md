@@ -8,9 +8,9 @@ In enterprise environments, a vast number of internal documents (reports, contra
 
 ColPali has emerged as a novel approach to overcome these limitations. It combines the 'late interaction' mechanism of ColBERT with a VLM, enabling an integrated understanding of both textual and visual components. By processing document images directly, it minimizes information loss from OCR errors.
 
-### 2. Why We Chose `tsystems/colqwen2.5-3b-multilingual-v1.0`
+### 2. Why We Chose `TomoroAI/tomoro-colqwen3-embed-4b`
 
-While building on the core ideas of ColPali, this project uses the `tsystems/colqwen2.5-3b-multilingual-v1.0` model. Based on Qwen2.5-VL-3B, it implements a ColBERT-style multi-vector representation and offers the following advantages:
+While building on the core ideas of ColPali, this project uses the `TomoroAI/tomoro-colqwen3-embed-4b` model. Based on Qwen2.5-VL-3B, it implements a ColBERT-style multi-vector representation and offers the following advantages:
 
 * **State-of-the-Art Performance**: Achieved the #1 rank on both the original Vidore benchmark and its successor, Vidore v2, for visual document retrieval, proving its top-tier capabilities in understanding and matching complex documents.
 * **Multilingual Support**: Trained on datasets covering multiple languages, including English and German, making it suitable for global enterprises.
